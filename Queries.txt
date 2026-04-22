@@ -1,0 +1,154 @@
+Queries
+1. List reservations with tenant and facility details
+SELECT R.RID, P.Name AS Tenant_Name, F.Name AS Facility_Name, R.Date, R.TimeInterval
+FROM Reservation R
+INNER JOIN Person P ON R.ReservedPerson_Name = P.Name AND R.ReservedPerson_DOB = P.DOB
+INNER JOIN Facility F ON R.ReservedFacility = F.Name;
+
+2. List all facilities and their reservations (even if no reservations exist)
+SELECT F.Name AS Facility_Name, R.RID, R.Date, R.TimeInterval
+FROM Facility F
+LEFT JOIN Reservation R ON F.Name = R.ReservedFacility;
+
+3. List all people and their reservations (including those without reservations)
+SELECT P.Name AS Person_Name, R.RID, R.Date, R.ReservedFacility
+FROM Reservation R
+RIGHT JOIN Person P ON R.ReservedPerson_Name = P.Name AND R.ReservedPerson_DOB = P.DOB;
+
+4. Show reservations and the employees handling them
+SELECT *
+FROM Reservation
+NATURAL JOIN Person_Handle_Reservation;
+Note: Does not work on MSSQL SERVER.
+
+5. Update moving-out date for one resident and change their resident status
+UPDATE Person_LivesIn_Apartment
+SET EndDate = CURRENT_DATE
+WHERE Person_Name = 'Jonathan Doe' AND DOB = '1990-05-15';
+
+UPDATE Person_ResidentStatus
+SET ResidentStatus = 'Inactive Resident'
+WHERE EXISTS (
+Ê Ê SELECT *
+Ê Ê FROM Person_LivesIn_Apartment PLA
+Ê Ê WHERE PLA.Person_Name = Person_ResidentStatus.Person_Name
+Ê Ê AND PLA.DOB = Person_ResidentStatus.DOB
+Ê Ê AND PLA.EndDate IS NOT NULL
+);
+
+6. Delete all inactive residents who do not have active reservations
+DELETE FROM Person_ResidentStatus
+WHERE ResidentStatus = 'Inactive Resident'
+AND NOT EXISTS (
+    SELECT *
+    FROM Reservation R
+    WHERE R.ReservedPerson_Name = Person_ResidentStatus.Person_Name
+    AND R.ReservedPerson_DOB = Person_ResidentStatus.DOB
+    AND R.Date >= CAST(GETDATE() AS DATE)
+);
+
+7. Count total reservations per facility
+SELECT ReservedFacility, COUNT(*) AS Total_Reservations
+FROM Reservation
+GROUP BY ReservedFacility;
+
+8. Find the facility with the highest number of reservations
+SELECT ReservedFacility, COUNT(*) AS Total_Reservations
+FROM Reservation
+GROUP BY ReservedFacility
+HAVING COUNT(*) = (
+    SELECT MAX(Total_Reservations) FROM (
+        SELECT COUNT(*) AS Total_Reservations FROM Reservation GROUP BY ReservedFacility
+    ) AS Subquery
+);
+
+9. Find tenants who have never made a reservation
+SELECT P.Name
+FROM Person P
+WHERE P.Type = 'Resident'
+AND NOT EXISTS (
+    SELECT *
+    FROM Reservation R
+    WHERE R.ReservedPerson_Name = P.Name
+    AND R.ReservedPerson_DOB = P.DOB
+);
+
+10. List facilities that have never been reserved
+SELECT Name
+FROM Facility F
+WHERE Name NOT IN (SELECT DISTINCT ReservedFacility FROM Reservation);
+
+11. Find employees who have handled the most reservations
+SELECT Person_Name, COUNT(*) AS Reservations_Handled
+FROM Person_Handle_Reservation
+GROUP BY Person_Name
+HAVING COUNT(*) = (
+    SELECT MAX(Reservations_Count)
+    FROM (
+        SELECT COUNT(*) AS Reservations_Count
+        FROM Person_Handle_Reservation
+        GROUP BY Person_Name
+    ) AS Subquery
+);
+
+12. Create a view for residents and their apartment details
+CREATE VIEW ResidentApartments AS
+SELECT PLA.Person_Name, PLA.DOB, BHA.Building_Name, BHA.ApartmentNumber, BHA.FloorNumber, BHA.OccupancyStatus
+FROM Person_LivesIn_Apartment PLA
+JOIN Building_Has_Apartment BHA
+ON PLA.Building_Name = BHA.Building_Name AND PLA.ApartmentNumber = BHA.ApartmentNumber
+WHERE PLA.EndDate IS NULL;
+
+13. Identify tenants who have made reservations for both Gym and Sauna facilities
+SELECT R.ReservedPerson_Name, R.ReservedPerson_DOB
+FROM Reservation R
+JOIN Facility F ON R.ReservedFacility = F.Name
+WHERE F.Name = 'Gym'
+INTERSECT
+SELECT R.ReservedPerson_Name, R.ReservedPerson_DOB
+FROM Reservation R
+JOIN Facility F ON R.ReservedFacility = F.Name
+WHERE F.Name = 'Sauna';
+
+14. Find residents who have reserved more than one type of facility
+SELECT ReservedPerson_Name, ReservedPerson_DOB
+FROM Reservation
+GROUP BY ReservedPerson_Name, ReservedPerson_DOB
+HAVING COUNT(DISTINCT ReservedFacility) > 1;
+
+15. Find residents who have reserved a facility but never showed up and the Reservation ID
+SELECT R.ReservedPerson_Name, R.ReservedPerson_DOB, R.RID
+FROM Reservation R
+JOIN Reservation_Showup RS ON R.RID = RS.RID
+WHERE RS.ShowupStatus = 'No Show';
+
+16. Find the month with the highest number of reservations
+SELECT TOP 1 MONTH(Date) AS ReservationMonth, COUNT(*) AS TotalReservations
+FROM Reservation
+GROUP BY MONTH(Date)
+ORDER BY TotalReservations DESC;
+Note: Used TOP 1 for MSSQL SERVER
+
+17. List employees who have handled reservations for at least 3 different facilities
+SELECT PH.Person_Name, COUNT(DISTINCT R.ReservedFacility) AS UniqueFacilitiesHandled
+FROM Person_Handle_Reservation PH
+JOIN Reservation R ON PH.RID = R.RID
+GROUP BY PH.Person_Name
+HAVING COUNT(DISTINCT R.ReservedFacility) >= 3;
+
+18. Find the facility with the highest number of guests in a reservation
+SELECT TOP 1 ReservedFacility, MAX(NumberOfGuests) AS MaxGuests
+FROM Reservation
+GROUP BY ReservedFacility
+ORDER BY MaxGuests DESC;
+
+19. Show the facility with the minimum and maximum number of guests in a reservation
+SELECT ReservedFacility, MIN(NumberOfGuests) AS MinGuests, MAX(NumberOfGuests) AS MaxGuests
+FROM Reservation
+GROUP BY ReservedFacility;
+
+20. Find the average number of guests per reservation per facility
+SELECT ReservedFacility, AVG(NumberOfGuests) AS AvgGuests
+FROM Reservation
+GROUP BY ReservedFacility;
+
